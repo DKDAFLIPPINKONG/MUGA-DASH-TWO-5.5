@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>MUGA DASH 5.5</title>
+<style>
+body{margin:0;overflow:hidden;font-family:Arial;background:#111;}
+canvas{display:block;}
+.menu{position:absolute;width:100%;height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;background:#0b1f3a;}
+.title{color:white;font-size:46px;margin-bottom:25px;text-align:center;}
+.row{display:flex;gap:80px;}
+button{font-size:22px;padding:12px 30px;border:none;border-radius:8px;background:#4cafef;color:white;cursor:pointer;}
+.bottom{position:absolute;bottom:30px;}
+.shopButton{position:absolute;bottom:30px;right:30px;}
+.devButton{position:absolute;bottom:30px;left:30px;}
+.coinCounter{position:absolute;top:20px;right:20px;color:gold;font-size:24px;}
+ul{color:white;font-size:20px;list-style:none;padding:0;}
+input, .slider{font-size:20px;padding:8px;margin-bottom:15px;}
+.shopGrid{display:grid;grid-template-columns:repeat(5,80px);gap:15px;margin-top:20px;justify-items:center;}
+.shopSlot{width:80px;height:80px;background:#222;border:2px solid #555;border-radius:6px;display:flex;justify-content:center;align-items:center;color:white;font-size:12px;position:relative;cursor:pointer;}
+.costLabel{position:absolute;top:-20px;color:white;font-size:14px;text-align:center;width:100%;}
+.greenBox{background:green !important;}
+.sliderContainer{color:white;margin-bottom:20px;width:300px;}
+</style>
+</head>
+<body>
+
+<!-- Main Menu -->
+<div id="menu" class="menu">
+<div class="title">MUGA DASH 5.5</div>
+<div class="row">
+<button onclick="startGame('easy')">Easy</button>
+<button onclick="startGame('medium')">Medium</button>
+<button onclick="startGame('hard')">Hard</button>
+</div>
+<div id="coinDisplay" class="coinCounter"></div>
+<button class="bottom" onclick="openBoardSelector()">Leaderboards</button>
+<button class="shopButton" onclick="openShop()">Skin Shop</button>
+<button class="devButton" onclick="openDevMenu()">Dev Only</button>
+</div>
+
+<!-- Death Menu -->
+<div id="deathMenu" class="menu" style="display:none">
+<div class="title">You Died</div>
+<div class="row">
+<button onclick="restart()">Restart</button>
+<button onclick="backMenu()">Menu</button>
+</div>
+<button onclick="openBoardSelector()">Leaderboards</button>
+</div>
+
+<!-- Leaderboard Selector -->
+<div id="boardSelect" class="menu" style="display:none">
+<div class="title">Select Leaderboard</div>
+<button onclick="showLeaderboard('easy')">Easy Leaderboard</button>
+<button onclick="showLeaderboard('medium')">Medium Leaderboard</button>
+<button onclick="showLeaderboard('hard')">Hard Leaderboard</button>
+<button onclick="closeBoardSelector()">Back</button>
+</div>
+
+<!-- Leaderboard Menu -->
+<div id="leaderboardMenu" class="menu" style="display:none">
+<div id="leaderTitle" class="title"></div>
+<input id="nameInput" placeholder="Type name and press Enter">
+<ul id="leaderboard"></ul>
+<button onclick="closeLeaderboard()">Close</button>
+</div>
+
+<!-- Skin Shop Menu -->
+<div id="shopMenu" class="menu" style="display:none">
+<div class="title">MUGA Shop</div>
+<div class="shopGrid" id="shopGrid">
+<!-- Slots generated dynamically -->
+</div>
+<button onclick="resetSkin()">Reset Skin</button>
+<button onclick="closeShop()">Back</button>
+</div>
+
+<!-- Dev Menu -->
+<div id="devMenu" class="menu" style="display:none">
+<div class="title">Dev Access</div>
+<input id="devCode" placeholder="Enter code and press Enter">
+<div id="modMenu" style="display:none;margin-top:20px">
+<div class="sliderContainer">Speed: <span id="speedVal"></span><input type="range" id="speedSlider" class="slider" min="0.5" max="10" step="0.1"></div>
+<div class="sliderContainer">Gravity: <span id="gravVal"></span><input type="range" id="gravSlider" class="slider" min="0.1" max="3" step="0.05"></div>
+<div class="sliderContainer">Player Size: <span id="sizeVal"></span><input type="range" id="sizeSlider" class="slider" min="10" max="80" step="1"></div>
+<button onclick="resetStats()">Reset Stats</button>
+<button onclick="closeDevMenu()">Close</button>
+</div>
+</div>
+
+<canvas id="game"></canvas>
+
+<script>
+// Canvas setup
+const canvas=document.getElementById("game")
+const ctx=canvas.getContext("2d")
+function resizeCanvas(){canvas.width=window.innerWidth;canvas.height=window.innerHeight}
+resizeCanvas();window.addEventListener("resize",resizeCanvas)
+
+let gravity=0.6, speed=6, spikeChance=0.3
+let platforms=[],coins=[],player,lastPlatform
+let score=0,difficulty="easy",gameActive=false,allowNameEntry=false
+let coinTotal=parseInt(localStorage.getItem("mugaCoins"))||0
+let purchasedSkins=JSON.parse(localStorage.getItem("purchasedSkins"))||{}
+let equippedSkin=localStorage.getItem("equippedSkin")||"white"
+
+// Update coins display
+function updateCoinDisplay(){document.getElementById("coinDisplay").innerText="55 Coins: "+coinTotal}
+updateCoinDisplay()
+function saveCoins(){localStorage.setItem("mugaCoins",coinTotal)}
+function getLeaderboard(diff){return JSON.parse(localStorage.getItem("board_"+diff))||[]}
+function saveLeaderboard(diff,data){localStorage.setItem("board_"+diff,JSON.stringify(data))}
+
+// Game functions
+function startGame(diff){
+difficulty=diff
+if(diff==="easy"){speed=6;spikeChance=0.3}
+if(diff==="medium"){speed=8;spikeChance=0.4}
+if(diff==="hard"){speed=10;spikeChance=0.5}
+document.getElementById("menu").style.display="none"
+document.getElementById("deathMenu").style.display="none"
+document.getElementById("boardSelect").style.display="none"
+document.getElementById("leaderboardMenu").style.display="none"
+document.getElementById("shopMenu").style.display="none"
+canvas.style.display="block"
+platforms=[];coins=[];score=0
+let start={x:150,y:canvas.height-170,width:220,height:20}
+platforms.push(start);lastPlatform=start
+player={x:start.x+40,y:start.y-25,width:25,height:25,vy:0,grounded:true}
+for(let i=0;i<10;i++)spawnPlatform()
+gameActive=true
+}
+
+function restart(){startGame(difficulty)}
+function backMenu(){gameActive=false;canvas.style.display="none";document.getElementById("deathMenu").style.display="none";document.getElementById("menu").style.display="flex";updateCoinDisplay()}
+
+// Platform spawn
+function spawnPlatform(){
+let gap = difficulty==="easy"? 280 : difficulty==="medium"? 320 : 360
+let x=lastPlatform.x + gap + Math.random()*50
+let y=lastPlatform.y + (Math.random()*70-35)
+if(y>canvas.height-120)y=canvas.height-120
+if(y<canvas.height/2)y=canvas.height/2
+let p={x:x,y:y,width:220,height:20,spike:null}
+if(Math.random()<spikeChance)p.spike={x:Math.random()*(p.width-20)}
+platforms.push(p);lastPlatform=p
+if(Math.random()<0.12)coins.push({x:p.x+p.width/2,y:p.y-60,size:30,alpha:1})
+}
+
+function jump(){if(player.grounded){player.vy=-11;player.grounded=false}}
+document.addEventListener("keydown",e=>{if(e.code==="Space")jump()})
+document.addEventListener("mousedown",jump)
+
+function update(){
+if(!gameActive)return
+player.vy+=gravity
+player.y+=player.vy
+player.grounded=false
+platforms.forEach(p=>{
+p.x-=speed
+if(player.x<p.x+p.width && player.x+player.width>p.x && player.y+player.height<=p.y+10 && player.y+player.height+player.vy>=p.y){player.y=p.y-player.height;player.vy=0;player.grounded=true}
+if(p.spike){let sx=p.x+p.spike.x;let sy=p.y-20;if(player.x<sx+20 && player.x+player.width>sx && player.y<sy+20 && player.y+player.height>sy){gameActive=false;showDeath()}}})
+coins.forEach(c=>{c.x-=speed;if(player.x<c.x+c.size && player.x+player.width>c.x && player.y<c.y+c.size && player.y+player.height>c.y){coinTotal++;saveCoins();c.alpha=0}})
+coins=coins.filter(c=>c.alpha>0)
+if(platforms[platforms.length-1].x<canvas.width+200)spawnPlatform()
+platforms=platforms.filter(p=>p.x+p.width>0)
+if(player.y>canvas.height){gameActive=false;showDeath()}}
+function draw(){
+if(!gameActive)return
+ctx.clearRect(0,0,canvas.width,canvas.height)
+let skinColor=equippedSkin
+if(skinColor==="rgb")skinColor=`hsl(${Date.now()%360},100%,50%)`
+ctx.fillStyle=skinColor
+ctx.fillRect(player.x,player.y,player.width,player.height)
+platforms.forEach(p=>{ctx.fillStyle="cyan";ctx.fillRect(p.x,p.y,p.width,p.height)
+if(p.spike){let sx=p.x+p.spike.x;let sy=p.y-20;ctx.fillStyle="red";ctx.beginPath();ctx.moveTo(sx,sy+20);ctx.lineTo(sx+10,sy);ctx.lineTo(sx+20,sy+20);ctx.closePath();ctx.fill()}})
+coins.forEach(c=>{ctx.fillStyle="gold";ctx.beginPath();ctx.arc(c.x,c.y,15,0,Math.PI*2);ctx.fill();ctx.fillStyle="black";ctx.font="14px Arial";ctx.fillText("55",c.x-8,c.y+5)})
+ctx.fillStyle="yellow";ctx.font="26px Arial";ctx.fillText("Score: "+score,20,40)}
+
+function showDeath(){canvas.style.display="none";document.getElementById("deathMenu").style.display="flex";let board=getLeaderboard(difficulty);allowNameEntry=false;if(board.length<10 || score>board[board.length-1].score){allowNameEntry=true}}
+
+// Leaderboards
+function openBoardSelector(){document.getElementById("menu").style.display="none";document.getElementById("deathMenu").style.display="none";document.getElementById("boardSelect").style.display="flex"}
+function closeBoardSelector(){document.getElementById("boardSelect").style.display="none";document.getElementById("menu").style.display="flex"}
+function showLeaderboard(diff){document.getElementById("boardSelect").style.display="none";document.getElementById("leaderboardMenu").style.display="flex";document.getElementById("leaderTitle").innerText=diff.toUpperCase()+" LEADERBOARD";let list=document.getElementById("leaderboard");list.innerHTML="";let board=getLeaderboard(diff);board.forEach(e=>{let li=document.createElement("li");li.textContent=e.name+" - "+e.score;list.appendChild(li)});let input=document.getElementById("nameInput");if(diff===difficulty && allowNameEntry){input.style.display="block";input.value=""}else{input.style.display="none"};input.onkeydown=function(e){if(e.key==="Enter" && allowNameEntry){let name=this.value.trim();if(name==="")return;board.push({name:name,score:score});board.sort((a,b)=>b.score-a.score);board=board.slice(0,10);saveLeaderboard(diff,board);allowNameEntry=false;input.style.display="none";showLeaderboard(diff)}}}
+function closeLeaderboard(){document.getElementById("leaderboardMenu").style.display="none";if(gameActive==false){document.getElementById("deathMenu").style.display="flex"}else{document.getElementById("menu").style.display="flex"}}
+
+// Skin Shop
+const skins=[
+{name:"red",cost:10},
+{name:"green",cost:10},
+{name:"blue",cost:10},
+{name:"rgb",cost:25},
+{name:"muga",cost:55}
+]
+
+function openShop(){document.getElementById("menu").style.display="none";document.getElementById("shopMenu").style.display="flex";renderShop()}
+function closeShop(){document.getElementById("shopMenu").style.display="none";document.getElementById("menu").style.display="flex"}
+
+function renderShop(){
+const grid=document.getElementById("shopGrid")
+grid.innerHTML=""
+skins.forEach(skin=>{
+let slot=document.createElement("div")
+slot.className="shopSlot"
+if(equippedSkin===skin.name)slot.classList.add("greenBox")
+let label=document.createElement("div")
+label.className="costLabel"
+label.innerText="Cost: "+skin.cost
+slot.appendChild(label)
+// cube preview
+let cube=document.createElement("div")
+cube.style.width="40px";cube.style.height="40px"
+cube.style.background=skin.name==="rgb"?"linear-gradient(90deg, red, green, blue)":skin.name==="muga"?"yellow":skin.name
+cube.style.borderRadius="4px"
+cube.style.display="flex";cube.style.justifyContent="center";cube.style.alignItems="center"
+cube.innerText=skin.name==="muga"?"MUGA":""
+cube.style.color=skin.name==="muga"?"black":"white"
+slot.appendChild(cube)
+
+slot.onclick=function(){
+if(purchasedSkins[skin.name] || coinTotal>=skin.cost){
+if(!purchasedSkins[skin.name]){coinTotal-=skin.cost;saveCoins();purchasedSkins[skin.name]=true;localStorage.setItem("purchasedSkins",JSON.stringify(purchasedSkins));updateCoinDisplay()}
+equippedSkin=skin.name
+localStorage.setItem("equippedSkin",equippedSkin)
+renderShop()
+}else{alert("Not enough coins!")}
+}
+
+grid.appendChild(slot)
+})
+}
+
+function resetSkin(){equippedSkin="white";localStorage.setItem("equippedSkin","white");renderShop()}
+
+// Dev Only
+function openDevMenu(){document.getElementById("menu").style.display="none";document.getElementById("devMenu").style.display="flex"}
+function closeDevMenu(){document.getElementById("devMenu").style.display="none";document.getElementById("menu").style.display="flex"}
+
+document.getElementById("devCode").addEventListener("keydown",function(e){
+if(e.key==="Enter" && this.value==="675555"){
+document.getElementById("modMenu").style.display="block"
+document.getElementById("speedSlider").value=speed
+document.getElementById("gravSlider").value=gravity
+document.getElementById("sizeSlider").value=player.width
+updateModDisplay()
+}
+})
+
+function updateModDisplay(){
+document.getElementById("speedVal").innerText=speed.toFixed(1)
+document.getElementById("gravVal").innerText=gravity.toFixed(2)
+document.getElementById("sizeVal").innerText=player.width
+}
+
+// Sliders
+document.getElementById("speedSlider").addEventListener("input",e=>{speed=parseFloat(e.target.value);updateModDisplay()})
+document.getElementById("gravSlider").addEventListener("input",e=>{gravity=parseFloat(e.target.value);updateModDisplay()})
+document.getElementById("sizeSlider").addEventListener("input",e=>{player.width=player.height=parseFloat(e.target.value);updateModDisplay()})
+function resetStats(){speed=6;gravity=0.6;player.width=25;player.height=25;updateModDisplay()}
+
+// Game loop
+function loop(){update();draw();requestAnimationFrame(loop)}
+loop()
+setInterval(()=>{if(gameActive)score++},1000)
+</script>
+</body>
+</html>
